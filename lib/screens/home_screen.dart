@@ -1,0 +1,158 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/church_provider.dart';
+import '../models/church.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Templomok lekérése a komponens betöltésekor
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      Provider.of<ChurchProvider>(context, listen: false)
+          .fetchResponsibilities(authProvider.currentUser?.responsibilities ?? []);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context);
+    final churchProvider = Provider.of<ChurchProvider>(context);
+    
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Miserend.hu - Templomok'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              authProvider.checkLoginStatus();
+              churchProvider.fetchResponsibilities(authProvider.currentUser?.responsibilities ?? []);
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.exit_to_app),
+            onPressed: () async {
+              await authProvider.logout();
+              if (context.mounted) {
+                Navigator.pushReplacementNamed(context, '/login');
+              }
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              'Üdvözöljük, ${authProvider.currentUser?.username ?? "Felhasználó"}!',
+              style: const TextStyle(fontSize: 20.0),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              'Gondnokolt templomok',
+              style: TextStyle(fontSize: 18.0, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(height: 8.0),
+          if (churchProvider.isLoading)
+            const Center(child: CircularProgressIndicator())
+          else if (churchProvider.error != null)
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                churchProvider.error!,
+                style: const TextStyle(color: Colors.red),
+                textAlign: TextAlign.center,
+              ),
+            )
+          else if (churchProvider.churches.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Center(
+                child: Text(
+                  'Nincs gondnokolt templom',
+                  style: TextStyle(fontSize: 16.0),
+                ),
+              ),
+            )
+          else
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => churchProvider.fetchResponsibilities(authProvider.currentUser?.responsibilities ?? []),
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(8.0),
+                  itemCount: churchProvider.churches.length,
+                  itemBuilder: (context, index) {
+                    final Church church = churchProvider.churches[index];
+                    return ChurchListItem(church: church);
+                  },
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class ChurchListItem extends StatelessWidget {
+  final Church church;
+  
+  const ChurchListItem({super.key, required this.church});
+  
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        leading: Container(
+          width: 60,
+          height: 60,
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(8.0),
+          ),
+          child: const Icon(Icons.church, color: Colors.deepPurple),
+        ),
+        title: Text(
+          church.name,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (church.knownName.isNotEmpty)
+              Text(church.knownName),
+            Text(church.settlement),
+          ],
+        ),
+        onTap: () {
+          // Templom részleteinek megnyitása
+          Provider.of<ChurchProvider>(context, listen: false)
+              .fetchChurchDetails(church.id);
+          // Értesítés megjelenítése a felhasználónak
+          String displayName = church.knownName.isNotEmpty ? church.knownName : church.name;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$displayName részletei betöltése...')),
+          );
+        },
+      ),
+    );
+  }
+}
