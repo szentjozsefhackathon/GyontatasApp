@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/church_provider.dart';
 import '../models/church.dart';
+import '../services/api_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -111,8 +112,61 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class ChurchListItem extends StatelessWidget {
   final Church church;
+  final ApiService _apiService = ApiService();
   
-  const ChurchListItem({super.key, required this.church});
+  ChurchListItem({super.key, required this.church});
+  
+  // Gyónás aktiválása dialógus megjelenítése
+  Future<void> _showConfessionDialog(BuildContext context) async {
+    String displayName = church.knownName.isNotEmpty ? church.knownName : church.name;
+    
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: Text('Gyóntatás a(z) $displayName templomban'),
+          content: const Text('Szeretné aktiválni a gyónást ebben a templomban?'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Nem'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Igen'),
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                _activateConfession(context, true);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+  
+  // Gyónás aktiválása API hívás
+  Future<void> _activateConfession(BuildContext context, bool isActive) async {
+    String displayName = church.knownName.isNotEmpty ? church.knownName : church.name;
+    
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gyóntatás ${isActive ? "aktiválása" : "deaktiválása"}...')),
+      );
+      
+      await _apiService.activateConfession(church.id, isActive);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gyóntatás sikeresen ${isActive ? "aktiválva" : "deaktiválva"} a(z) $displayName templomban')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hiba történt: ${e.toString()}')),
+      );
+    }
+  }
   
   @override
   Widget build(BuildContext context) {
@@ -143,7 +197,10 @@ class ChurchListItem extends StatelessWidget {
           ],
         ),
         onTap: () {
-          // Templom részleteinek megnyitása
+          _showConfessionDialog(context);
+        },
+        onLongPress: () {
+          // Templom részleteinek megnyitása hosszú nyomásra
           Provider.of<ChurchProvider>(context, listen: false)
               .fetchChurchDetails(church.id);
           // Értesítés megjelenítése a felhasználónak
