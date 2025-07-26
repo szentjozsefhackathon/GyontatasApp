@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:gyontatas_app/providers/confession_provider.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/church_provider.dart';
 import '../models/church.dart';
 import '../services/api_service.dart';
+import '../utils/auth_check.dart';
+import '../utils/confession_check.dart';
+import 'confession_active_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,6 +22,16 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     // Templomok lekérése a komponens betöltésekor
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Ellenőrzi, hogy a felhasználó be van-e jelentkezve
+      AuthCheck.checkAuthentication(context);
+      
+      // Ellenőrzi, hogy van-e aktív gyóntatás
+      final confessionProvider = Provider.of<ConfessionProvider>(context, listen: false);
+      confessionProvider.checkConfessionStatus().then((_) {
+        // Ha van aktív gyóntatás, átirányítás a gyóntatás képernyőre
+        ConfessionCheck.checkActiveConfession(context);
+      });
+      
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       Provider.of<ChurchProvider>(context, listen: false)
           .fetchResponsibilities(authProvider.currentUser?.responsibilities ?? []);
@@ -28,7 +42,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final churchProvider = Provider.of<ChurchProvider>(context);
-    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Miserend.hu - Templomok'),
@@ -36,8 +49,10 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () {
-              authProvider.checkLoginStatus();
+            onPressed: () async {
+              await authProvider.checkLoginStatus();
+              // Ellenőrzi, hogy a felhasználó be van-e jelentkezve a frissítés után
+              AuthCheck.checkAuthentication(context);
               churchProvider.fetchResponsibilities(authProvider.currentUser?.responsibilities ?? []);
             },
           ),
@@ -112,7 +127,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class ChurchListItem extends StatelessWidget {
   final Church church;
-  final ApiService _apiService = ApiService();
   
   ChurchListItem({super.key, required this.church});
   
@@ -156,7 +170,13 @@ class ChurchListItem extends StatelessWidget {
         SnackBar(content: Text('Gyóntatás ${isActive ? "aktiválása" : "deaktiválása"}...')),
       );
       
-      await _apiService.activateConfession(church.id, isActive);
+      // ConfessionProvider használata gyónás aktiválásához
+      final confessionProvider = Provider.of<ConfessionProvider>(context, listen: false);
+      bool result = await confessionProvider.activateConfession(church.id, isActive);
+      if (result && context.mounted) {
+        // Ha sikeres az aktiválás, átirányítás a gyóntatás képernyőre
+        Navigator.of(context).pushReplacementNamed('/confession');
+      }
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Gyóntatás sikeresen ${isActive ? "aktiválva" : "deaktiválva"} a(z) $displayName templomban')),

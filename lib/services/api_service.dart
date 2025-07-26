@@ -166,14 +166,14 @@ class ApiService {
         },
         'object': {
           'Mód': 2,
-          'Status_Leak': isActive ? 0 : 0,
+          'Status_Leak': isActive ? 1 : 0,
         }
       }),
     );
     
     if (response.statusCode == 200) {
       final Map<String, dynamic> responseData = jsonDecode(response.body);
-      print('Gyónás aktiválása: $responseData');
+      (await SharedPreferences.getInstance()).setInt('active_confession', isActive ? churchId : -1);
       return responseData;
     } else {
       throw Exception('Sikertelen gyónás aktiválás: ${response.statusCode}');

@@ -39,6 +39,10 @@ dependencies:
   provider: ^6.1.5
   device_info_plus: ^11.5.0
   uuid: ^4.5.1
+  flutter_background_service: ^5.1.0
+  flutter_background_service_android: ^6.3.1
+  flutter_background_service_ios: ^5.0.3
+  flutter_local_notifications: ^19.4.0
 
 dev_dependencies:
   flutter_test:
