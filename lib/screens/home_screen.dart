@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:gyontatas_app/providers/confession_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/auth_provider.dart';
 import '../providers/church_provider.dart';
 import '../models/church.dart';
-import '../services/api_service.dart';
 import '../utils/auth_check.dart';
 import '../utils/confession_check.dart';
-import 'confession_active_screen.dart';
+import '../utils/service_handler.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -42,7 +42,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final churchProvider = Provider.of<ChurchProvider>(context);
-    return Scaffold(
+    final confessionProvider = Provider.of<ConfessionProvider>(context, listen: false);
+    
+    return WillPopScope(
+      onWillPop: () async => await ServiceHandler.onWillPop(context),
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Miserend.hu - Templomok'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
@@ -121,6 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
+    ),
     );
   }
 }
@@ -166,25 +171,30 @@ class ChurchListItem extends StatelessWidget {
     String displayName = church.knownName.isNotEmpty ? church.knownName : church.name;
     
     try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gyóntatás ${isActive ? "aktiválása" : "deaktiválása"}...')),
-      );
-      
       // ConfessionProvider használata gyónás aktiválásához
       final confessionProvider = Provider.of<ConfessionProvider>(context, listen: false);
-      bool result = await confessionProvider.activateConfession(church.id, isActive);
+      
+      // Templom név mentése SharedPreferences-be
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('active_church_name', displayName);
+      
+      // Gyóntatás aktiválása templom nevével
+      bool result = await confessionProvider.activateConfession(
+        church.id, 
+        isActive,
+        churchName: displayName
+      );
+      
       if (result && context.mounted) {
         // Ha sikeres az aktiválás, átirányítás a gyóntatás képernyőre
         Navigator.of(context).pushReplacementNamed('/confession');
       }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gyóntatás sikeresen ${isActive ? "aktiválva" : "deaktiválva"} a(z) $displayName templomban')),
-      );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hiba történt: ${e.toString()}')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Hiba történt: ${e.toString()}')),
+        );
+      }
     }
   }
   

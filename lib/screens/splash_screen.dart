@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/confession_provider.dart';
+import '../utils/service_handler.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -21,6 +22,9 @@ class _SplashScreenState extends State<SplashScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final confessionProvider = Provider.of<ConfessionProvider>(context, listen: false);
     
+    // ServiceHandler inicializálása
+    await ServiceHandler().initialize(context);
+    
     // Ellenőrizzük a bejelentkezési állapotot
     await authProvider.checkLoginStatus();
     
@@ -28,12 +32,12 @@ class _SplashScreenState extends State<SplashScreen> {
     await confessionProvider.checkConfessionStatus();
     
     if (mounted) {
-      if (!authProvider.isLoggedIn) {
+      if (confessionProvider.isActive) {
+        Navigator.pushReplacementNamed(context, '/confession');
+      }
+      else if (!authProvider.isLoggedIn) {
         // Ha nincs bejelentkezve, átirányítás a bejelentkezés oldalra
         Navigator.pushReplacementNamed(context, '/login');
-      } else if (confessionProvider.isActive) {
-        // Ha be van jelentkezve és van aktív gyóntatás, átirányítás a gyóntatás oldalra
-        Navigator.pushReplacementNamed(context, '/confession');
       } else {
         // Ha be van jelentkezve és nincs aktív gyóntatás, átirányítás a főoldalra
         Navigator.pushReplacementNamed(context, '/home');

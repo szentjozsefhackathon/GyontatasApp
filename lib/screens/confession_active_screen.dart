@@ -1,10 +1,12 @@
 import 'dart:async';
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/auth_provider.dart';
 import '../providers/confession_provider.dart';
 import '../utils/auth_check.dart';
+import '../utils/service_handler.dart';
 
 class ConfessionActiveScreen extends StatefulWidget {
   const ConfessionActiveScreen({super.key});
@@ -15,6 +17,7 @@ class ConfessionActiveScreen extends StatefulWidget {
 
 class _ConfessionActiveScreenState extends State<ConfessionActiveScreen> with WidgetsBindingObserver {
   Timer? _refreshTimer;
+  bool _isTimerActive = false;
   
   @override
   void initState() {
@@ -26,47 +29,66 @@ class _ConfessionActiveScreenState extends State<ConfessionActiveScreen> with Wi
       // Ellenőrzi, hogy a felhasználó be van-e jelentkezve
       AuthCheck.checkAuthentication(context);
       
-      // Gyónás állapotának ellenőrzése
+      // Service Handler inicializálása
+      ServiceHandler().initialize(context);
+      
+      // Gyónás állapotának ellenőrzése és időzítő indítása
       final confessionProvider = Provider.of<ConfessionProvider>(context, listen: false);
       confessionProvider.checkConfessionStatus().then((_) {
-        // Ha aktív gyóntatás van, elindítjuk az időzítőt
-        if (confessionProvider.isActive) {
+        if (confessionProvider.isActive && !_isTimerActive) {
           _startRefreshTimer();
         }
       });
     });
   }
   
-  // Időzítő indítása, ami 10 percenként frissíti a gyóntatás állapotát
+  // Időzítő indítása a 10 percenkénti frissítéshez
   void _startRefreshTimer() {
-    // Töröljük az esetleg már futó időzítőt
-    _refreshTimer?.cancel();
+    if (_isTimerActive) return;
     
-    // Új időzítő indítása (10 perc = 600 másodperc)
+    _refreshTimer?.cancel();
+    _isTimerActive = true;
+    
     _refreshTimer = Timer.periodic(const Duration(minutes: 10), (timer) async {
-      final confessionProvider = Provider.of<ConfessionProvider>(context, listen: false);
+      // Ellenőrizzük, hogy a felhasználó be van-e jelentkezve
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      await authProvider.checkLoginStatus();
       
-      // Ha már nem aktív a gyóntatás, leállítjuk az időzítőt
-      if (!confessionProvider.isActive) {
-        _refreshTimer?.cancel();
-        _refreshTimer = null;
+      if (!authProvider.isLoggedIn) {
+        _stopTimer();
         return;
       }
       
-      // Frissítjük a gyóntatás állapotát az API-n keresztül
-      try {
-        await confessionProvider.activateConfession(confessionProvider.active, true);
-        print('Gyóntatás állapot frissítve: ${DateTime.now()}');
-      } catch (e) {
-        print('Hiba történt a gyóntatás állapot frissítésekor: $e');
+      final confessionProvider = Provider.of<ConfessionProvider>(context, listen: false);
+      await confessionProvider.checkConfessionStatus();
+      
+      if (confessionProvider.isActive) {
+        try {
+          print('Gyóntatás állapot frissítése: ${DateTime.now()}');
+          await confessionProvider.activateConfession(confessionProvider.active, true);
+        } catch (e) {
+          print('Hiba történt a gyóntatás állapot frissítésekor: $e');
+        }
+      } else {
+        _stopTimer();
       }
     });
+    
+    print('Gyóntatás időzítő elindítva - ${DateTime.now()}');
+  }
+  
+  void _stopTimer() {
+    if (_refreshTimer != null) {
+      _refreshTimer!.cancel();
+      _refreshTimer = null;
+      _isTimerActive = false;
+      print('Gyóntatás időzítő leállítva - ${DateTime.now()}');
+    }
   }
   
   @override
   void dispose() {
-    // Időzítő leállítása, amikor a widget megsemmisül
-    _refreshTimer?.cancel();
+    _stopTimer();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -77,18 +99,23 @@ class _ConfessionActiveScreenState extends State<ConfessionActiveScreen> with Wi
       // Ellenőrizzük, hogy a felhasználó be van-e jelentkezve amikor visszatér az alkalmazásba
       AuthCheck.checkAuthentication(context);
       
-      // Gyóntatás állapotának ellenőrzése
+      // Gyónás állapotának ellenőrzése és időzítő indítása, ha szükséges
       final confessionProvider = Provider.of<ConfessionProvider>(context, listen: false);
       confessionProvider.checkConfessionStatus().then((_) {
-        // Ha aktív gyóntatás van, de nincs futó időzítő, akkor elindítjuk
-        if (confessionProvider.isActive && _refreshTimer == null) {
+        if (confessionProvider.isActive && !_isTimerActive) {
           _startRefreshTimer();
-        } else if (!confessionProvider.isActive && _refreshTimer != null) {
-          // Ha nincs aktív gyóntatás, de van időzítő, akkor leállítjuk
-          _refreshTimer?.cancel();
-          _refreshTimer = null;
+        } else if (!confessionProvider.isActive && _isTimerActive) {
+          _stopTimer();
         }
       });
+    } else if (state == AppLifecycleState.inactive || 
+              state == AppLifecycleState.paused) {
+      // Ha az alkalmazás háttérbe kerül, de van aktív gyóntatás, 
+      // akkor is folytatjuk az időzítőt
+      final confessionProvider = Provider.of<ConfessionProvider>(context, listen: false);
+      if (confessionProvider.isActive && !_isTimerActive) {
+        _startRefreshTimer();
+      }
     }
   }
 
@@ -99,7 +126,10 @@ class _ConfessionActiveScreenState extends State<ConfessionActiveScreen> with Wi
 
     return WillPopScope(
       // Megakadályozza a visszalépést, ha aktív gyóntatás van
-      onWillPop: () async => !confessionProvider.isActive,
+      onWillPop: () async {
+        // A ServiceHandler segítségével ellenőrizzük, hogy lehet-e kilépni
+        return await ServiceHandler.onWillPop(context);
+      },
       child: Scaffold(
       appBar: AppBar(
         title: const Text('Aktív Gyóntatás'),
@@ -170,10 +200,19 @@ class _ConfessionActiveScreenState extends State<ConfessionActiveScreen> with Wi
                         );
                         
                         if (result == true) {
-                          await confessionProvider.activateConfession(confessionProvider.active, false);
-                          // Időzítő leállítása, amikor a gyóntatás befejeződik
-                          _refreshTimer?.cancel();
-                          _refreshTimer = null;
+                          // Lekérjük a templom nevét a SharedPreferences-ből
+                          final prefs = await SharedPreferences.getInstance();
+                          final churchName = prefs.getString('active_church_name') ?? '';
+                          
+                          await confessionProvider.activateConfession(
+                            confessionProvider.active, 
+                            false,
+                            churchName: churchName
+                          );
+                          
+                          // Időzítő leállítása
+                          _stopTimer();
+                          
                           if (context.mounted) {
                             Navigator.of(context).pushReplacementNamed('/home');
                           }
